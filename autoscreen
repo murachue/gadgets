@@ -1,0 +1,55 @@
+#!/bin/bash
+
+run()
+{
+	# Debug
+	#read
+	screen $*
+}
+
+if [ "$SSH_CLIENT" == "" ]; then
+
+	if [ $SHLVL -gt 1 ]; then
+		# echo "(ignoreing: shell level $SHLVL > 1)"
+		echo -n ""
+	else
+		echo "AutoScreen start"
+
+		echo -n "Press any key to abort..."
+		# Read one, Success&Null=die.
+		read -t 1 -n 1 x; if [ $? -eq 0 -a "$x" != "" ]; then echo "Aborted!"; return; fi
+		echo "Ignored."
+
+		if [ "`screen -ls|grep "(Dead ???)"`" != "" ]; then
+			echo -n "Dead screen(s) found..."
+			screen -wipe
+			echo "wiped"
+		fi
+
+		REPLY=`screen -ls|egrep "is a screen|are screens|No Sockets"`
+		echo "Reply: $REPLY"
+
+		if [ "$REPLY" == "" ]; then
+			echo "Parse Error!"
+		else
+			if echo $REPLY | grep "No Sockets" > /dev/null 2>&1; then
+				echo "No screen found, creating new screen..."
+				run
+				exit
+			fi
+			if echo $REPLY | grep "is a screen" > /dev/null 2>&1; then
+				echo "1 screen found, resuming..."
+				run -x
+				exit
+			fi
+			if echo $REPLY | grep "are screens" > /dev/null 2>&1; then
+				echo "2 or more screens found."
+				echo "There are list of screens."
+				run -ls
+				echo "  screen -r PID"
+				echo "to resume."
+			fi
+		fi
+	fi
+
+fi
