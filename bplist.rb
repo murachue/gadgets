@@ -339,6 +339,8 @@ if __FILE__ == $0
 			#bplist.tree["Applications"].each do |k,v|
 			#	puts "#{k} => #{v["Path"]}"
 			#end
+		rescue Errno::ENOENT
+			puts "Error: #{fn}: not found."
 		rescue IOError
 			puts "Error: #{fn}: couldn't read."
 		rescue RuntimeError => e
