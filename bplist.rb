@@ -2,13 +2,14 @@
 #  by Murachue
 # 20091229.2218: initialize
 # 20100101.1348: check Kconv, hash dump improved, modulized, renamed dumpself->dump.
+# 20120916.1906: ruby1.9-ize. add runnable test code. tested with ruby 1.9.3p0-i386-mingw32
 
 if not defined? Kconv::REVISION
 	require 'Kconv'
 end
 
 module Bplist
-	VERSION = "20100101.1348"
+	VERSION = "20120916.1906"
 	HostKCode = Kconv::SJIS
 
 	class DataString < String
@@ -22,13 +23,11 @@ module Bplist
 		end
 	end
 
-	#@bplist = ARGF.binmode.read
-	def Bplist::parse(buf)
+	def self.parse(buf)
 		return BPListParser.new(buf)
 	end
 
 	class BPListParser
-		#@bplist = ARGF.binmode.read
 		def initialize(bytes)
 			@bplist = bytes
 			self.parse
@@ -63,9 +62,9 @@ module Bplist
 			@t_topObject = unpack64(@bplist[-16..-9])
 			@t_numObject = unpack64(@bplist[-24..-17])
 
-			@t_objRefSize = @bplist[-25]#.unpack("C")[0]
-			@t_objIntSize = @bplist[-26]#..-26].unpack("C")[0]
-			@t_sortVersion = @bplist[-27]#..-27].unpack("C")[0]
+			@t_objRefSize = @bplist[-25].unpack("C")[0]
+			@t_objIntSize = @bplist[-26].unpack("C")[0]
+			@t_sortVersion = @bplist[-27].unpack("C")[0]
 
 			# check trailer
 			if @t_sortVersion != 0
@@ -79,7 +78,7 @@ module Bplist
 				n = 0
 				(0..(s - 1)).each{|i|
 					n <<= 8
-					n = n | d[o + i]
+					n = n | d[o + i].ord
 				}
 				#puts "readVar: o,s=#{o},#{s}, n=#{n}"
 				return n
@@ -113,11 +112,11 @@ module Bplist
 			#        1111 xxxx                       // unused
 
 			def parseInt(b, o)
-				if b[o] >> 4 != 0b0001
+				if b[o].ord >> 4 != 0b0001
 					raise "NotINT"
 				end
 
-				l = 2 ** (b[o] & 0x0F)
+				l = 2 ** (b[o].ord & 0x0F)
 				v = readVar(b, o + 1, l)
 
 				#p b[o].to_s(16), b[o+1].to_s(16), l, v
@@ -129,7 +128,7 @@ module Bplist
 				off = @objOffsets[id]
 				#puts id, @objOffsets.length, off
 				#raise "Overrun" if id > @objOffsets.length
-				cmd = @bplist[off]
+				cmd = @bplist[off].ord
 				data = nil
 				if cmd >> 4 == 0b0000
 					case cmd & 0x0F
@@ -189,7 +188,7 @@ module Bplist
 						data = @bplist[doff .. (doff + len - 1)]
 						#data = "data: " + data.unpack("H*").to_s
 
-						if data[0..7] == "bplist00"
+						if data[0..7] == "bplist00"	# special; bplist in bplist
 							#b = BPListParser.new(String.new(data))
 							b = BPListParser.new(data)
 							#b.parse
@@ -200,50 +199,56 @@ module Bplist
 
 					when 0b0101	# string(ASCII)
 						#len = 64 if len > 64
-						data = @bplist[doff .. (doff + len - 1)]
+						data = @bplist[doff ... doff + len]
 						#puts "STR_ASCII(#{id} #{off.to_s(16)} #{len}): " + data.inspect
 					when 0b0110	# string(UTF16?)
 						#len = 64 if len > 64
 						len *= 2	# len = chars of unicode string...
-						data = @bplist[doff .. (doff + len - 1)]
+						data = @bplist[doff ... doff + len]
 						#data = Kconv.kconv(data, Kconv::SJIS, Kconv::UTF16)	# XXX
 						data = data.kconv(HostKCode, Kconv::UTF16)
 						#puts "STR_UNICODE: " + data
 						#p id, off.to_s(16), len
 					when 0b0111	# -unused
-					when 0b1000	# uid
+						raise "unknown type #{cmd}"
+					when 0b1000	# uid: never seen...
 						len = (cmd & 0x0F) + 1
-						puts "UID: " + @bplist[doff .. (doff + len - 1)].inspect
-						data = UIDString.new(@bplist[doff .. (doff + len - 1)].inspect)
+						puts "UID: " + @bplist[doff ... doff + len].inspect
+						data = UIDString.new(@bplist[doff ... doff + len].inspect)
 					when 0b1001	# -unused
+						raise "unknown type #{cmd}"
 					when 0b1010	# array
 						#len = 64 if len > 64
-						#puts "ARRAY: " + @bplist[doff .. (doff + len - 1)].inspect
-						objs = @bplist[doff .. (doff + len * @t_objRefSize - 1)]
+						#puts "ARRAY: " + @bplist[doff ... doff + len].inspect
+						objs = @bplist[doff ... doff + len * @t_objRefSize]
 						data = []
-						(0..(len - 1)).each{|i|
+						(0...len).each{|i|
 							oid = readVar(objs, i * @t_objRefSize, @t_objRefSize)
 							data << readObj(oid)
 						}
 					when 0b1011	# -unused
+						raise "unknown type #{cmd}"
 					when 0b1100	# -unused
+						raise "unknown type #{cmd}"
 					when 0b1101	# dict
 						#puts "DICT."
-						objs = @bplist[doff .. (doff + len * @t_objRefSize * 2 - 1)]
+						objs = @bplist[doff ... doff + len * @t_objRefSize * 2]
 						data = {}
 						names = []
-						(0..(len - 1)).each{|i|
+						(0...len).each{|i|
 							noid = readVar(objs, i * @t_objRefSize, @t_objRefSize)
 							names << readObj(noid)
 						}
-						(0..(len - 1)).each{|i|
+						(0...len).each{|i|
 							void = readVar(objs, (len + i) * @t_objRefSize, @t_objRefSize)
 							valu = readObj(void)
 							#p names[i], valu
 							data[names[i]] = valu
 						}
 					when 0b1110	# -unused
+						raise "unknown type #{cmd}"
 					when 0b1111	# -unused
+						raise "unknown type #{cmd}"
 					end
 				end
 
@@ -318,40 +323,26 @@ module Bplist
 
 		def dump(indent = 0)
 			_dump @tree, indent
+			puts
 		end
 	end
 end
 
-# old test code
+if __FILE__ == $0
+	ARGV.each do |fn|
+		begin
+			bdata = File.binread(fn)
+			bplist = Bplist.parse(bdata)
+			bplist.dump
 
-#bplist = BPListParser.new(ARGF.binmode.read)
-##bplist.parse
-#bplist.dumpself
-#
-#p bplist.tree["Metadata"]["Path"]
-#
-##puts "OK"
-#
-#exit 0
-
-#bplist.tree["Applications"]["net.naan.TwitterFon"]["Files"].each{|a|
-#	puts a
-#}
-#puts
-#bplist.tree["Applications"]["jp.co.infocity.BB2C10"]["Files"].each{|a|
-#	puts a
-#}
-
-#z = []
-#ARGV.each{|f|
-#	g = open(f, "r").binmode
-#	b = BPListParser.new(g.read)
-#	#b.dumpself
-#	z << [f.split(/\//).last, b.tree["Metadata"]["Path"]]
-#	g.close
-#}
-#
-#z.sort! { |a, b| a[1] <=> b[1] }
-#z.each { |a|
-#	puts "#{a[0]}: #{a[1]}"
-#}
+			# example
+			#bplist.tree["Applications"].each do |k,v|
+			#	puts "#{k} => #{v["Path"]}"
+			#end
+		rescue IOError
+			puts "Error: #{fn}: couldn't read."
+		rescue RuntimeError => e
+			puts "Error: #{fn}: #{e}"
+		end
+	end
+end
