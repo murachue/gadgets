@@ -178,9 +178,8 @@ module Bplist
 						end
 						#data = readVar(@bplist, doff, 8).to_s
 						data = [readVar(@bplist, doff, 8)].pack('Q').unpack('d')[0]	# XXX: holy shit code. endianess will be ignored.
-						# XXX: what? It will stored by CFAbsoluteTime, but it doesn't start from 2001/1/1, it seems to UNIX TIME!!
-						#data = Time.at(Time.gm(2001,1,1) + data)
-						data = Time.at(data)
+						# Date is stored as CFAbsoluteTime; start from 2001/1/1.
+						data = Time.gm(2001,1,1) + data
 						#puts "DATE: " + data.to_s
 					when 0b0100	# data
 						#len = 64 if len > 64
